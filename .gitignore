@@ -1,0 +1,24 @@
+# Environment variables
+.env
+backend/.env
+frontend/.env
+frontend/.env.local
+
+# Python caches and compiled files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Node / Frontend dependencies and builds
+node_modules/
+frontend/node_modules/
+dist/
+frontend/dist/
+build/
+
+# OS metadata
+.DS_Store
+Thumbs.db
