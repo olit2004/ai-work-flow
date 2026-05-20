@@ -372,78 +372,98 @@ export default function QuantaleLab({ customPoset, setCustomPoset, quantale, onE
           </div>
 
           {/* Custom Pipeline Builder */}
-          {!editMode && diagnostics.isValid && (
-            <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">
-              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
-                <Sliders className="w-4 h-4 text-slate-500" />
-                2. Custom Workflow Assembly
-              </h4>
+          <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+              <Sliders className="w-4 h-4 text-slate-500" />
+              2. Custom Workflow Assembly
+            </h4>
 
-              {/* Steps display */}
-              <div className="flex flex-wrap items-center gap-2 mb-4 bg-white p-3 border border-slate-200/50 rounded-xl min-h-[50px]">
-                {customSteps.length > 0 ? (
-                  customSteps.map((step, idx) => (
-                    <div key={idx} className="flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-850 px-2 py-1 rounded-lg text-xs font-semibold">
-                      <span>{step}</span>
-                      <button 
-                        onClick={() => setCustomSteps(customSteps.filter((_, i) => i !== idx))}
-                        className="text-orange-400 hover:text-orange-600 font-bold ml-1 cursor-pointer"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))
-                ) : (
-                  <span className="text-slate-400 text-xs italic">
-                    Pipeline is empty. Click stages on the Hasse diagram or buttons below.
-                  </span>
-                )}
+            {editMode ? (
+              <div className="text-center py-6 px-4 bg-orange-50/30 border border-dashed border-orange-200 rounded-xl my-2">
+                <p className="text-xs text-orange-850 font-bold">
+                  Graph Editor is Active
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Disable "Edit Graph Structure" in the top-right to assemble and run custom workflows.
+                </p>
               </div>
-
-              {/* Append Buttons */}
-              <div className="flex flex-wrap gap-2">
-                {stages.map((stage) => (
-                  <button
-                    key={stage}
-                    onClick={() => handleAppendStage(stage)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-orange-50 hover:border-orange-200 text-slate-700 hover:text-orange-700 text-xs font-medium rounded-xl transition cursor-pointer"
-                  >
-                    <Plus size={12} />
-                    <span>{stage}</span>
-                  </button>
-                ))}
+            ) : !diagnostics.isValid ? (
+              <div className="text-center py-6 px-4 bg-rose-50/30 border border-dashed border-rose-200 rounded-xl my-2">
+                <p className="text-xs text-rose-800 font-bold">
+                  Algebraic Constraints Violated
+                </p>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Please restore the lattice connections in the editor to re-enable custom workflow assembly.
+                </p>
               </div>
-
-              {/* Presets and run controls */}
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-slate-100 mt-4 pt-4 text-xs gap-3">
-                <div className="flex gap-2">
-                  <span className="text-slate-400 font-medium self-center">Standard Presets:</span>
-                  <button onClick={() => handleResetPreset("fast")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Fast</button>
-                  <button onClick={() => handleResetPreset("balanced")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Balanced</button>
-                  <button onClick={() => handleResetPreset("quality")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Quality</button>
+            ) : (
+              <>
+                {/* Steps display */}
+                <div className="flex flex-wrap items-center gap-2 mb-4 bg-white p-3 border border-slate-200/50 rounded-xl min-h-[50px]">
+                  {customSteps.length > 0 ? (
+                    customSteps.map((step, idx) => (
+                      <div key={idx} className="flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-850 px-2 py-1 rounded-lg text-xs font-semibold">
+                        <span>{step}</span>
+                        <button 
+                          onClick={() => setCustomSteps(customSteps.filter((_, i) => i !== idx))}
+                          className="text-orange-400 hover:text-orange-600 font-bold ml-1 cursor-pointer"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))
+                  ) : (
+                    <span className="text-slate-400 text-xs italic">
+                      Pipeline is empty. Click stages on the Hasse diagram or buttons below.
+                    </span>
+                  )}
                 </div>
 
-                <div className="flex gap-2">
-                  <button 
-                    onClick={() => setCustomSteps([])}
-                    className="flex items-center gap-1 text-slate-500 hover:text-rose-600 transition cursor-pointer font-medium"
-                  >
-                    <Trash2 size={13} />
-                    <span>Clear</span>
-                  </button>
-
-                  <button
-                    onClick={() => onExecuteCustom && onExecuteCustom(customSteps)}
-                    disabled={customSteps.length === 0}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition text-white font-bold rounded-xl shadow-sm cursor-pointer ml-2"
-                  >
-                    <Play size={12} />
-                    <span>Run Custom Pipeline</span>
-                  </button>
+                {/* Append Buttons */}
+                <div className="flex flex-wrap gap-2">
+                  {stages.map((stage) => (
+                    <button
+                      key={stage}
+                      onClick={() => handleAppendStage(stage)}
+                      className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-orange-50 hover:border-orange-200 text-slate-700 hover:text-orange-700 text-xs font-medium rounded-xl transition cursor-pointer"
+                    >
+                      <Plus size={12} />
+                      <span>{stage}</span>
+                    </button>
+                  ))}
                 </div>
-              </div>
-            </div>
-          )}
+
+                {/* Presets and run controls */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-slate-100 mt-4 pt-4 text-xs gap-3">
+                  <div className="flex gap-2">
+                    <span className="text-slate-400 font-medium self-center">Standard Presets:</span>
+                    <button onClick={() => handleResetPreset("fast")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Fast</button>
+                    <button onClick={() => handleResetPreset("balanced")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Balanced</button>
+                    <button onClick={() => handleResetPreset("quality")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Quality</button>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button 
+                      onClick={() => setCustomSteps([])}
+                      className="flex items-center gap-1 text-slate-500 hover:text-rose-600 transition cursor-pointer font-medium"
+                    >
+                      <Trash2 size={13} />
+                      <span>Clear</span>
+                    </button>
+
+                    <button
+                      onClick={() => onExecuteCustom && onExecuteCustom(customSteps)}
+                      disabled={customSteps.length === 0}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition text-white font-bold rounded-xl shadow-sm cursor-pointer ml-2"
+                    >
+                      <Play size={12} />
+                      <span>Run Custom Pipeline</span>
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
 
           {/* Validation Diagnostics Panel */}
           <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">

@@ -1,5 +1,7 @@
 import React, { useState, useRef } from "react";
 import { Download, Copy, Check, FileText, Loader2, Sparkles, BarChart, ShieldAlert } from "lucide-react";
+import html2canvas from "html2canvas-pro";
+import { jsPDF } from "jspdf";
 
 export default function ResultViewer({ finalResult, workflow, topic }) {
   const [downloading, setDownloading] = useState(false);
@@ -23,44 +25,53 @@ export default function ResultViewer({ finalResult, workflow, topic }) {
     setDownloading(true);
 
     try {
-      // 1. Dynamically load html2pdf if not already loaded
-      if (!window.html2pdf) {
-        console.log("html2pdf not found on window, injecting script dynamically...");
-        await new Promise((resolve, reject) => {
-          const script = document.createElement("script");
-          script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
-          script.onload = () => {
-            console.log("Dynamic script loaded successfully");
-            resolve();
-          };
-          script.onerror = (e) => {
-            console.error("Dynamic script load failed:", e);
-            reject(new Error("Failed to load html2pdf.js library"));
-          };
-          document.head.appendChild(script);
-        });
-      }
-
-      console.log("html2pdf library available. window.html2pdf function:", window.html2pdf);
-
-      // 2. Generate PDF
       const element = contentRef.current;
       console.log("Target DOM element for PDF generation:", element);
       if (!element) {
         throw new Error("Content element reference contentRef.current is null");
       }
 
-      const opt = {
-        margin:       [0.75, 0.75, 0.75, 0.75],
-        filename:     `quantflow-report-${topic ? topic.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "output"}.pdf`,
-        image:        { type: "jpeg", quality: 0.98 },
-        html2canvas:  { scale: 2, useCORS: true, logging: true }, // Turn on html2canvas logging for debugging!
-        jsPDF:        { unit: "in", format: "letter", orientation: "portrait" }
-      };
+      console.log("Rendering element using html2canvas-pro...");
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: true
+      });
 
-      console.log("Invoking html2pdf set/from/save chain...");
-      await window.html2pdf().set(opt).from(element).save();
-      console.log("html2pdf download task successfully sent to browser");
+      console.log("Canvas generated successfully. Canvas dimensions:", canvas.width, "x", canvas.height);
+      const imgData = canvas.toDataURL("image/jpeg", 0.98);
+
+      console.log("Creating jsPDF instance...");
+      const pdf = new jsPDF("p", "in", "letter");
+      const pageWidth = 8.5;
+      const pageHeight = 11;
+      const margin = 0.75;
+      
+      const contentWidth = pageWidth - (margin * 2); // 7.0 inches
+      const contentHeight = pageHeight - (margin * 2); // 9.5 inches
+      
+      const imgWidth = contentWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      
+      let heightLeft = imgHeight;
+      let position = 0;
+      
+      console.log("Adding first page to PDF. Image height in PDF inches:", imgHeight);
+      pdf.addImage(imgData, "JPEG", margin, margin, imgWidth, imgHeight);
+      heightLeft -= contentHeight;
+      
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        console.log("Adding extra page to PDF. Shift offset position:", position);
+        pdf.addPage();
+        pdf.addImage(imgData, "JPEG", margin, margin + position, imgWidth, imgHeight);
+        heightLeft -= contentHeight;
+      }
+      
+      const filename = `quantflow-report-${topic ? topic.toLowerCase().replace(/[^a-z0-9]+/g, "-") : "output"}.pdf`;
+      console.log("Saving PDF as file:", filename);
+      pdf.save(filename);
+      console.log("PDF download successful");
     } catch (error) {
       console.error("PDF generation failed with error detail:", error);
       alert(`Failed to generate PDF. Error: ${error.message}`);

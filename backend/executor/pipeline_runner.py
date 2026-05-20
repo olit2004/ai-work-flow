@@ -1,6 +1,8 @@
 import time
 import os
+# pyrefly: ignore [missing-import]
 from dotenv import load_dotenv
+# pyrefly: ignore [missing-import]
 from groq import Groq
 
 from .mock_service import (
@@ -18,22 +20,29 @@ q = build_quantflow_quantale()
 
 # Load env variables from backend/.env
 dotenv_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env")
-load_dotenv(dotenv_path)
-
-api_key = os.getenv("groq_api")
 client = None
-if api_key:
-    try:
-        client = Groq(api_key=api_key)
-    except Exception as e:
-        print(f"Error initializing Groq client: {e}")
+
+def get_groq_client():
+    global client
+    if client is not None:
+        return client
+    # Reload env from .env dynamically
+    load_dotenv(dotenv_path)
+    api_key = os.getenv("groq_api") or os.getenv("GROQ_API_KEY")
+    if api_key:
+        try:
+            client = Groq(api_key=api_key)
+        except Exception as e:
+            print(f"Error initializing Groq client: {e}")
+    return client
 
 def run_groq_completion(prompt: str, system_prompt: str = "You are a helpful AI content writer. Return only the requested content without any conversational filler or intro/outro commentary.") -> str:
     """Helper to run a Chat Completion using Groq llama-3.1-8b-instant."""
-    if not client:
+    groq_client = get_groq_client()
+    if not groq_client:
         raise ValueError("Groq client not initialized")
         
-    completion = client.chat.completions.create(
+    completion = groq_client.chat.completions.create(
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": prompt}
@@ -51,7 +60,7 @@ def run_groq_completion(prompt: str, system_prompt: str = "You are a helpful AI 
 
 def ai_research(topic: str) -> str:
     print(f"\n[AI Research] Gathering information about: {topic}")
-    if not client:
+    if not get_groq_client():
         return mock_research(topic)
     try:
         prompt = f"Generate a detailed research brief on the topic: '{topic}'. Focus on key concepts, historical context, modern applications, and future outlook. Use bullet points."
@@ -62,7 +71,7 @@ def ai_research(topic: str) -> str:
 
 def ai_structure(research_notes: str) -> str:
     print("\n[AI Structure] Organizing outline and ideas")
-    if not client:
+    if not get_groq_client():
         return mock_structure(research_notes)
     try:
         prompt = f"Organize the following research findings into a structured, logical article outline. Group related points under clear markdown headings (Introduction, Core Concepts, Analysis, Conclusion) and add brief sub-bullet points for what each section will cover:\n\n{research_notes}"
@@ -73,7 +82,7 @@ def ai_structure(research_notes: str) -> str:
 
 def ai_draft(outline: str) -> str:
     print("\n[AI Draft] Writing initial draft")
-    if not client:
+    if not get_groq_client():
         return mock_draft(outline)
     try:
         prompt = f"Write a comprehensive, engaging article draft based on the following outline. Make the tone informative and professional. Write at least 4 detailed paragraphs:\n\n{outline}"
@@ -84,7 +93,7 @@ def ai_draft(outline: str) -> str:
 
 def ai_refine(draft_content: str) -> str:
     print("\n[AI Refine] Improving clarity, flow, and style")
-    if not client:
+    if not get_groq_client():
         return mock_refine(draft_content)
     try:
         prompt = f"Refine the following article draft to maximize clarity, readability, style, and flow. Polish the prose, correct any passive voice, and improve word choices while keeping the core content intact:\n\n{draft_content}"
@@ -95,7 +104,7 @@ def ai_refine(draft_content: str) -> str:
 
 def ai_publish(refined_content: str) -> str:
     print("\n[AI Publish] Finalizing formatting for publication")
-    if not client:
+    if not get_groq_client():
         return mock_publish(refined_content)
     try:
         prompt = f"Format the following refined article into a publication-ready markdown document. Add a catchy title, a brief 2-sentence executive summary under the title, insert markdown headings, bold key concepts, and end with a conclusion section. Output only the markdown:\n\n{refined_content}"
