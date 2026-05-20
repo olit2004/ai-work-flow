@@ -50,3 +50,19 @@ cd frontend
 npm install
 npm run dev
 ```
+
+---
+
+## Running with Docker Compose
+
+If you prefer Docker 
+
+1. Create a `.env` file in the `backend/` directory with your Groq API key:
+   ```env
+   groq_api=your_groq_api_key
+   ```
+2. Run the following command from the root directory:
+   ```bash
+   docker-compose up --build
+   ```
+3. Open `http://localhost:5173` in your browser to view the application.

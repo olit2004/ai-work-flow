@@ -10,7 +10,7 @@ import ExecutionConsole from "./components/ExecutionConsole";
 import ResultViewer from "./components/ResultViewer";
 import { buildQuantale } from "./utils/quantaleEngine";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const DEFAULT_NODES = ["raw", "researched", "structured", "drafted", "refined", "published"];
 const DEFAULT_EDGES = [
