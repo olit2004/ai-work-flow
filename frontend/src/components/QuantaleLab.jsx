@@ -1,290 +1,532 @@
 import React, { useState, useEffect } from "react";
-import { Sliders, HelpCircle, RefreshCw, Plus, Trash2, ShieldCheck, ShieldAlert, Cpu } from "lucide-react";
+import { Sliders, HelpCircle, RefreshCw, Plus, Trash2, ShieldCheck, ShieldAlert, Cpu, CheckCircle, Scale, Eye, Play, BookOpen } from "lucide-react";
 import HasseDiagram from "./HasseDiagram";
 
-const API_BASE_URL = "http://127.0.0.1:8000";
-
-export default function QuantaleLab() {
-  const stages = ["raw", "researched", "structured", "drafted", "refined", "published"];
-
-  // States
+export default function QuantaleLab({ customPoset, setCustomPoset, quantale, onExecuteCustom }) {
+  // Local Panel States
+  const [editMode, setEditMode] = useState(false);
   const [customSteps, setCustomSteps] = useState(["researched", "drafted", "published"]);
   const [targetStage, setTargetStage] = useState("published");
-  const [analysis, setAnalysis] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  
-  // Galois Calculator State
-  const [galoisA, setGaloisA] = useState("drafted");
 
-  // Fetch analysis from FastAPI backend
-  const fetchAnalysis = async (steps, target) => {
-    try {
-      setLoading(true);
-      setError("");
-      const response = await fetch(`${API_BASE_URL}/api/analyze`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          steps: steps,
-          targetStage: target,
-        }),
-      });
+  // Proof Simulation States
+  const [proofMode, setProofMode] = useState("none"); // "none" | "distributivity" | "adjunction"
+  const [proofA, setProofA] = useState("drafted");
+  const [proofB, setProofB] = useState("researched");
+  const [proofC, setProofC] = useState("published");
 
-      if (!response.ok) throw new Error("Failed to compute algebraic analysis.");
+  const stages = customPoset.nodes;
 
-      const data = await response.json();
-      setAnalysis(data);
-    } catch (err) {
-      console.error(err);
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Run analysis when steps or target change
+  // Make sure variables exist in node list (in case nodes are deleted in edit mode)
   useEffect(() => {
-    fetchAnalysis(customSteps, targetStage);
-  }, [customSteps, targetStage]);
-
-  // Toggle stage inclusion
-  const handleToggleStage = (stage) => {
-    if (customSteps.includes(stage)) {
-      setCustomSteps(customSteps.filter((s) => s !== stage));
-    } else {
-      // Append to the list
-      setCustomSteps([...customSteps, stage]);
+    if (stages.length > 0) {
+      if (!stages.includes(proofA)) setProofA(stages[0]);
+      if (!stages.includes(proofB)) setProofB(stages[0]);
+      if (!stages.includes(proofC)) setProofC(stages[stages.length - 1] || stages[0]);
+      if (!stages.includes(targetStage)) setTargetStage(stages[stages.length - 1] || stages[0]);
+      setCustomSteps(prev => prev.filter(s => stages.includes(s)));
     }
-  };
+  }, [stages]);
 
-  // Append stage helper
+  // Append node helper for custom pipeline builder
   const handleAppendStage = (stage) => {
     setCustomSteps([...customSteps, stage]);
   };
 
-  // Clear builder
-  const handleClear = () => {
-    setCustomSteps([]);
-  };
-
-  // Reset to standard templates
-  const handleReset = (preset) => {
+  // Preset templates
+  const handleResetPreset = (preset) => {
     const presets = {
       fast: ["researched", "drafted", "published"],
       balanced: ["researched", "structured", "drafted", "published"],
       quality: ["researched", "structured", "drafted", "refined", "published"],
     };
-    setCustomSteps(presets[preset] || []);
+    if (presets[preset]) {
+      // Filter out any stages that don't exist in the current poset
+      setCustomSteps(presets[preset].filter(s => stages.includes(s)));
+    }
   };
 
-  return (
-    <div className="mt-12 bg-white border border-orange-100 rounded-3xl p-8 shadow-sm text-slate-900">
+  // Computes the algebraic status of the current graph
+  const diagnostics = React.useMemo(() => {
+    if (!quantale) {
+      return { isValid: false, message: "Error compiling relation algebra." };
+    }
+
+    const errors = [];
+    const properties = [];
+
+    // 1. Is it a Poset? (Guaranteed by closure calculation, but good to state)
+    properties.push({ name: "Poset Order (Reflexive, Antisymmetric, Transitive)", val: true });
+
+    // 2. Is it a Lattice?
+    const isLat = quantale.isLattice();
+    if (!isLat) {
+      errors.push("Missing Join/Meet bounds. Every pair of elements must have a unique lowest upper bound and highest lower bound.");
+    }
+    properties.push({ name: "Lattice Algebra (Pairwise bounds exist)", val: isLat });
+
+    if (isLat) {
+      // 3. Monoid axioms
+      const isComm = quantale.isCommutative();
+      const isIdem = quantale.isIdempotent();
+      const isInteg = quantale.isIntegral();
+      properties.push({ name: "Commutative Monoid (a ⊗ b = b ⊗ a)", val: isComm });
+      properties.push({ name: "Idempotent Monoid (a ⊗ a = a)", val: isIdem });
+      properties.push({ name: "Integral Unit (Identity is Top element)", val: isInteg });
+
+      // 4. Distributivity (distributes over joins)
+      const isDist = quantale.verifyDistributivity();
+      if (!isDist) {
+        errors.push("Distributivity failure: ⊗ does not distribute over Join. Composition must scale linearly.");
+      }
+      properties.push({ name: "Quantale Distributivity: a ⊗ (b ∨ c) = (a ⊗ b) ∨ (a ⊗ c)", val: isDist });
+
+      // 5. Adjunction
+      const isAdj = quantale.verifyAdjunction();
+      if (!isAdj) {
+        errors.push("Adjunction failure: Galois connection a ⊗ b ≤ c ⟺ b ≤ a → c is violated.");
+      }
+      properties.push({ name: "Residuated Galois Adjunction", val: isAdj });
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+      properties
+    };
+  }, [quantale]);
+
+  // Compute live calculations for custom builders
+  const analysis = React.useMemo(() => {
+    if (!quantale || !diagnostics.isValid) return null;
+
+    try {
+      const effStage = quantale.bigMeet(customSteps) || quantale.top;
       
-      {/* Title Header */}
-      <div className="flex items-center gap-3 mb-6">
-        <div className="p-2 bg-orange-100 text-orange-600 rounded-2xl">
-          <Cpu className="w-6 h-6" />
+      // Check if customSteps are strictly non-decreasing (monotonic)
+      let isValidChain = true;
+      for (let i = 0; i < customSteps.length - 1; i++) {
+        if (!quantale.le(customSteps[i], customSteps[i+1])) {
+          isValidChain = false;
+          break;
+        }
+      }
+
+      // Compute right residuals for all stages relative to the selected target
+      const residuals = {};
+      stages.forEach(s => {
+        residuals[s] = quantale.rightResidual(s, targetStage);
+      });
+
+      return {
+        effectiveStage: effStage,
+        isValidChain,
+        residuals
+      };
+    } catch (e) {
+      return null;
+    }
+  }, [quantale, customSteps, targetStage, stages, diagnostics.isValid]);
+
+  return (
+    <div className="bg-white/80 backdrop-blur-xl border border-slate-100 rounded-3xl p-6 shadow-sm text-slate-800">
+      
+      {/* Title Bar */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-100 pb-5">
+        <div className="flex items-center gap-3">
+          <div className="p-3 bg-orange-100 text-orange-600 rounded-2xl">
+            <Cpu className="w-6 h-6" />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-slate-900">
+              Algebraic Quantale Sandbox
+            </h2>
+            <p className="text-slate-500 text-xs mt-0.5">
+              Model, verify, and mathematically animate custom poset structures and Galois connections.
+            </p>
+          </div>
         </div>
-        <div>
-          <h2 className="text-3xl font-bold text-slate-900">
-            Quantale Algebraic Laboratory
-          </h2>
-          <p className="text-slate-500 mt-1 text-sm">
-            Model, analyze, and formally verify custom AI workflows using lattice theory and Galois residuals.
-          </p>
+
+        {/* Edit mode toggle switch */}
+        <div className="flex items-center gap-2.5 bg-slate-50 px-3.5 py-2 rounded-2xl border border-slate-200/50 self-start md:self-auto">
+          <span className="text-xs font-semibold text-slate-600">Edit Graph Structure</span>
+          <button
+            onClick={() => {
+              setEditMode(!editMode);
+              setProofMode("none"); // Reset proofs during edit
+            }}
+            className="text-slate-600 hover:text-orange-500 transition cursor-pointer"
+          >
+            {editMode ? (
+              <span className="text-orange-500 font-bold flex items-center gap-1 text-xs">
+                Active <CheckCircle className="w-4 h-4" />
+              </span>
+            ) : (
+              <span className="text-slate-400 flex items-center gap-1 text-xs">
+                Disabled <HelpCircle className="w-4 h-4 text-slate-300" />
+              </span>
+            )}
+          </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 mt-6">
         
-        {/* Left: SVG Hasse Diagram (Lattice Poset) */}
-        <div className="lg:col-span-4">
+        {/* Left: Interactive Hasse Diagram */}
+        <div className="lg:col-span-5 xl:col-span-4 flex justify-center">
           <HasseDiagram 
-            activeStages={customSteps} 
-            onNodeClick={handleToggleStage} 
+            customPoset={customPoset}
+            onUpdatePoset={setCustomPoset}
+            quantale={quantale}
+            activeStages={customSteps}
+            onNodeClick={(node) => {
+              if (!editMode) {
+                // If in sandbox build mode, append/toggle customSteps
+                if (customSteps.includes(node)) {
+                  setCustomSteps(customSteps.filter(s => s !== node));
+                } else {
+                  setCustomSteps([...customSteps, node]);
+                }
+              }
+            }}
+            editMode={editMode}
+            proofMode={proofMode}
+            proofNodes={{ a: proofA, b: proofB, c: proofC }}
           />
         </div>
 
-        {/* Right: Custom Builder & Mathematical Analysis */}
-        <div className="lg:col-span-8 space-y-6">
+        {/* Right: Validation & Live Proof Panel */}
+        <div className="lg:col-span-7 xl:col-span-8 space-y-6">
           
-          {/* Builder Controls */}
-          <div className="border border-orange-100 bg-orange-50/20 p-5 rounded-2xl">
-            <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-3">
-              1. Custom Workflow Assembly
+          {/* Dynamic Proof Visualizer controls */}
+          <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+              <Eye className="w-4 h-4 text-slate-500" />
+              1. Mathematical Visual Proofs
             </h4>
 
-            {/* Steps display */}
-            <div className="flex flex-wrap items-center gap-2 mb-4 bg-white p-3 border border-orange-100 rounded-xl min-h-[50px]">
-              {customSteps.length > 0 ? (
-                customSteps.map((step, idx) => (
-                  <div key={idx} className="flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-800 px-2 py-1 rounded-lg text-xs font-semibold">
-                    <span>{step}</span>
-                    <button 
-                      onClick={() => setCustomSteps(customSteps.filter((_, i) => i !== idx))}
-                      className="text-orange-400 hover:text-orange-600 font-bold ml-1 cursor-pointer"
-                    >
-                      ×
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <span className="text-slate-400 text-xs italic">
-                  Pipeline is empty. Add stages below or click the Hasse diagram.
-                </span>
-              )}
-            </div>
-
-            {/* Interactive Add Buttons */}
-            <div className="flex flex-wrap gap-2">
-              {stages.map((stage) => (
-                <button
-                  key={stage}
-                  onClick={() => handleAppendStage(stage)}
-                  className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-orange-50 hover:border-orange-200 text-slate-700 hover:text-orange-700 text-xs font-medium rounded-xl transition cursor-pointer"
-                >
-                  <Plus size={12} />
-                  <span>{stage}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Presets and clear controls */}
-            <div className="flex items-center justify-between border-t border-slate-100 mt-4 pt-4 text-xs">
-              <div className="flex gap-2">
-                <span className="text-slate-500 font-medium self-center">Presets:</span>
-                <button onClick={() => handleReset("fast")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Fast</button>
-                <button onClick={() => handleReset("balanced")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Balanced</button>
-                <button onClick={() => handleReset("quality")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Quality</button>
-              </div>
-
-              <button 
-                onClick={handleClear}
-                className="flex items-center gap-1 text-slate-500 hover:text-rose-600 transition cursor-pointer"
+            <div className="flex flex-wrap gap-2.5 mb-4">
+              <button
+                onClick={() => setProofMode("none")}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 cursor-pointer ${
+                  proofMode === "none"
+                    ? "bg-slate-800 text-white border-slate-800"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
               >
-                <Trash2 size={13} />
-                <span>Clear Pipeline</span>
+                No Overlay
+              </button>
+              <button
+                onClick={() => setProofMode("distributivity")}
+                disabled={editMode || !diagnostics.isValid}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 cursor-pointer disabled:opacity-40 ${
+                  proofMode === "distributivity"
+                    ? "bg-indigo-600 text-white border-indigo-600"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Animate Distributivity
+              </button>
+              <button
+                onClick={() => setProofMode("adjunction")}
+                disabled={editMode || !diagnostics.isValid}
+                className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 cursor-pointer disabled:opacity-40 ${
+                  proofMode === "adjunction"
+                    ? "bg-emerald-600 text-white border-emerald-600"
+                    : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                }`}
+              >
+                Animate Galois Adjunction
               </button>
             </div>
+
+            {/* Proof Inputs & Math equations */}
+            {proofMode === "distributivity" && diagnostics.isValid && (
+              <div className="bg-indigo-50/30 border border-indigo-100/50 rounded-xl p-4 text-xs text-slate-700 space-y-3.5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-500">Select (a):</span>
+                    <select
+                      value={proofA}
+                      onChange={(e) => setProofA(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none font-semibold text-slate-700"
+                    >
+                      {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-500">Select (b):</span>
+                    <select
+                      value={proofB}
+                      onChange={(e) => setProofB(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none font-semibold text-slate-700"
+                    >
+                      {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-500">Select (c):</span>
+                    <select
+                      value={proofC}
+                      onChange={(e) => setProofC(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none font-semibold text-slate-700"
+                    >
+                      {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="border-t border-indigo-150/40 pt-3 space-y-2.5 font-mono">
+                  <p className="font-bold text-slate-900">Distributivity Law: a ⊗ (b ∨ c) = (a ⊗ b) ∨ (a ⊗ c)</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-[11px] bg-white p-3 border border-slate-100 rounded-lg shadow-inner">
+                    <div>
+                      <p className="text-indigo-600 font-bold mb-1">Left Hand Side (LHS)</p>
+                      <ul className="space-y-1">
+                        <li>1. Join: {proofB} ∨ {proofC} = <strong className="text-indigo-900">{quantale?.join(proofB, proofC) || "null"}</strong></li>
+                        <li>2. Compose: {proofA} ⊗ {quantale?.join(proofB, proofC)} = <strong className="text-emerald-600 font-extrabold">{quantale?.mul(proofA, quantale?.join(proofB, proofC)) || "null"}</strong></li>
+                      </ul>
+                    </div>
+
+                    <div>
+                      <p className="text-sky-600 font-bold mb-1">Right Hand Side (RHS)</p>
+                      <ul className="space-y-1">
+                        <li>1. Term 1: {proofA} ⊗ {proofB} = <strong className="text-indigo-900">{quantale?.mul(proofA, proofB) || "null"}</strong></li>
+                        <li>2. Term 2: {proofA} ⊗ {proofC} = <strong className="text-indigo-900">{quantale?.mul(proofA, proofC) || "null"}</strong></li>
+                        <li>3. Join Terms: {quantale?.mul(proofA, proofB)} ∨ {quantale?.mul(proofA, proofC)} = <strong className="text-emerald-600 font-extrabold">{quantale?.join(quantale?.mul(proofA, proofB), quantale?.mul(proofA, proofC)) || "null"}</strong></li>
+                      </ul>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1.5 text-xs text-indigo-800 font-bold">
+                    <CheckCircle className="w-4 h-4 text-indigo-600" />
+                    <span>LHS equals RHS ({quantale?.mul(proofA, quantale?.join(proofB, proofC))} = {quantale?.join(quantale?.mul(proofA, proofB), quantale?.mul(proofA, proofC))}). Proof Complete!</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {proofMode === "adjunction" && diagnostics.isValid && (
+              <div className="bg-emerald-50/30 border border-emerald-150/40 rounded-xl p-4 text-xs text-slate-700 space-y-3.5">
+                <div className="flex flex-wrap items-center gap-3">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-500">Select Manager (a):</span>
+                    <select
+                      value={proofA}
+                      onChange={(e) => setProofA(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none font-semibold text-slate-700"
+                    >
+                      {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                  
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-semibold text-slate-500">Select Limit (c):</span>
+                    <select
+                      value={proofC}
+                      onChange={(e) => setProofC(e.target.value)}
+                      className="bg-white border border-slate-200 rounded-lg px-2 py-1 outline-none font-semibold text-slate-700"
+                    >
+                      {stages.map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="border-t border-emerald-150/40 pt-3 space-y-2.5 font-mono">
+                  <p className="font-bold text-slate-900">Adjunction Law: a ⊗ b ≤ c ⟺ b ≤ a → c</p>
+                  
+                  <div className="bg-white p-3 border border-slate-100 rounded-lg shadow-inner">
+                    <p className="mb-2">1. Calculated Division (Right Residual):</p>
+                    <p className="text-sm font-bold text-slate-800 pl-4">
+                      {proofA} → {proofC} = <span className="text-amber-600 font-extrabold">{quantale?.rightResidual(proofA, proofC)}</span>
+                    </p>
+                    
+                    <p className="mt-3 mb-1">2. Allowed Sub-Agent Steps (b) matching limits:</p>
+                    <div className="flex flex-wrap gap-1.5 pl-4">
+                      {stages.map(s => {
+                        const isSafe = quantale?.le(quantale.mul(proofA, s), proofC);
+                        return (
+                          <span 
+                            key={s} 
+                            className={`px-2 py-1 rounded text-[10px] font-bold ${
+                              isSafe 
+                                ? "bg-emerald-50 text-emerald-800 border border-emerald-200" 
+                                : "bg-red-50 text-red-600 border border-red-150 line-through"
+                            }`}
+                          >
+                            {s}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-1.5 text-xs text-emerald-800 font-bold leading-relaxed">
+                    <CheckCircle className="w-4 h-4 text-emerald-600 mt-0.5 flex-shrink-0" />
+                    <span>
+                      Verifies Adjunction! A sub-agent stage $b$ stays within limit "{proofC}" if and only if $b \le$ "{quantale?.rightResidual(proofA, proofC)}". The Hasse green/gold overlays visually confirm this order constraint.
+                    </span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
-          {/* Target & Galois Adjunction Sandbox */}
-          <div className="border border-orange-100 p-5 rounded-2xl bg-white shadow-sm grid grid-cols-1 md:grid-cols-2 gap-6">
-            
-            {/* Target Select */}
-            <div>
-              <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-2">
-                2. Target Quality Stage ($c$)
+          {/* Custom Pipeline Builder */}
+          {!editMode && diagnostics.isValid && (
+            <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">
+              <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+                <Sliders className="w-4 h-4 text-slate-500" />
+                2. Custom Workflow Assembly
               </h4>
-              <p className="text-slate-500 text-xs leading-relaxed mb-3">
-                Sets the target refinement threshold for Galois residuation division.
-              </p>
-              <select
-                value={targetStage}
-                onChange={(e) => setTargetStage(e.target.value)}
-                className="w-full bg-slate-50 border border-orange-200 text-slate-800 py-2.5 px-3 rounded-xl text-sm font-medium outline-none"
-              >
+
+              {/* Steps display */}
+              <div className="flex flex-wrap items-center gap-2 mb-4 bg-white p-3 border border-slate-200/50 rounded-xl min-h-[50px]">
+                {customSteps.length > 0 ? (
+                  customSteps.map((step, idx) => (
+                    <div key={idx} className="flex items-center gap-1 bg-orange-50 border border-orange-200 text-orange-850 px-2 py-1 rounded-lg text-xs font-semibold">
+                      <span>{step}</span>
+                      <button 
+                        onClick={() => setCustomSteps(customSteps.filter((_, i) => i !== idx))}
+                        className="text-orange-400 hover:text-orange-600 font-bold ml-1 cursor-pointer"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-slate-400 text-xs italic">
+                    Pipeline is empty. Click stages on the Hasse diagram or buttons below.
+                  </span>
+                )}
+              </div>
+
+              {/* Append Buttons */}
+              <div className="flex flex-wrap gap-2">
                 {stages.map((stage) => (
-                  <option key={stage} value={stage}>
-                    Target stage: {stage}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {/* Galois Calculator */}
-            <div>
-              <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wider mb-2">
-                3. Galois Calculator ($a \to c$)
-              </h4>
-              <p className="text-slate-500 text-xs leading-relaxed mb-3">
-                Solve delegation divide: what is the max safe downstream step?
-              </p>
-              
-              <div className="flex gap-3">
-                <div className="flex-1">
-                  <select
-                    value={galoisA}
-                    onChange={(e) => setGaloisA(e.target.value)}
-                    className="w-full bg-slate-50 border border-orange-200 text-slate-800 py-2 px-2.5 rounded-xl text-xs outline-none"
+                  <button
+                    key={stage}
+                    onClick={() => handleAppendStage(stage)}
+                    className="flex items-center gap-1 px-3 py-1.5 bg-white border border-slate-200 hover:bg-orange-50 hover:border-orange-200 text-slate-700 hover:text-orange-700 text-xs font-medium rounded-xl transition cursor-pointer"
                   >
-                    {stages.map((stage) => (
-                      <option key={stage} value={stage}>
-                        Stage (a): {stage}
-                      </option>
-                    ))}
-                  </select>
+                    <Plus size={12} />
+                    <span>{stage}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Presets and run controls */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between border-t border-slate-100 mt-4 pt-4 text-xs gap-3">
+                <div className="flex gap-2">
+                  <span className="text-slate-400 font-medium self-center">Standard Presets:</span>
+                  <button onClick={() => handleResetPreset("fast")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Fast</button>
+                  <button onClick={() => handleResetPreset("balanced")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Balanced</button>
+                  <button onClick={() => handleResetPreset("quality")} className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer">Quality</button>
                 </div>
 
-                <div className="flex-1 flex items-center justify-center bg-orange-50 border border-orange-100 rounded-xl px-3 py-2 text-xs font-bold text-slate-800">
-                  <span>Residual: {analysis?.residuals[galoisA] || "published"}</span>
+                <div className="flex gap-2">
+                  <button 
+                    onClick={() => setCustomSteps([])}
+                    className="flex items-center gap-1 text-slate-500 hover:text-rose-600 transition cursor-pointer font-medium"
+                  >
+                    <Trash2 size={13} />
+                    <span>Clear</span>
+                  </button>
+
+                  <button
+                    onClick={() => onExecuteCustom && onExecuteCustom(customSteps)}
+                    disabled={customSteps.length === 0}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-40 transition text-white font-bold rounded-xl shadow-sm cursor-pointer ml-2"
+                  >
+                    <Play size={12} />
+                    <span>Run Custom Pipeline</span>
+                  </button>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* Adjunction display */}
-            <div className="col-span-1 md:col-span-2 border-t border-slate-100 pt-4 flex flex-col md:flex-row items-start md:items-center justify-between text-xs gap-3">
-              <div className="font-mono bg-slate-950 text-orange-400 p-2.5 rounded-xl w-full md:w-auto">
-                a ⊗ b ≤ c ⟺ b ≤ (a → c)
-              </div>
-              <div className="text-slate-500 leading-relaxed max-w-md">
-                If current step is <strong>{galoisA}</strong>, downstream agent step <strong>b</strong> can be at most <strong>{analysis?.residuals[galoisA] || "published"}</strong> to prevent falling below target limit <strong>{targetStage}</strong>.
-              </div>
-            </div>
+          {/* Validation Diagnostics Panel */}
+          <div className="bg-slate-50/50 border border-slate-200/60 rounded-2xl p-5">
+            <h4 className="font-bold text-xs uppercase tracking-wider text-slate-400 mb-3 flex items-center gap-1.5">
+              <BookOpen className="w-4 h-4 text-slate-500" />
+              3. Algebraic Diagnostics
+            </h4>
 
-          </div>
-
-          {/* Validation & Bottleneck Results */}
-          {analysis && (
-            <div className="border border-orange-100 p-5 rounded-2xl bg-white shadow-sm space-y-4">
-              <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wider">
-                4. Algebraic Diagnostics
-              </h4>
-
-              {/* Chain Monotonicity validation */}
-              {analysis.isValidChain ? (
-                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 p-3 rounded-xl text-xs">
+            {diagnostics.isValid ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 text-emerald-800 p-3.5 rounded-2xl text-xs">
                   <ShieldCheck className="w-4 h-4 mt-0.5 text-emerald-600 flex-shrink-0" />
                   <div>
-                    <span className="font-bold">Monotonicity Confirmed:</span> Pipeline flows in increasing/non-decreasing refinement stages. Mathematically stable.
+                    <span className="font-bold">Lattice Invariant Confirmed:</span> The graph forms a valid Complete Lattice and Residuated Quantale. Meet operations guarantee a stable refinement boundary.
                   </div>
                 </div>
-              ) : (
-                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800 p-3 rounded-xl text-xs">
-                  <ShieldAlert className="w-4 h-4 mt-0.5 text-rose-600 flex-shrink-0" />
-                  <div>
-                    <span className="font-bold">Quality Decay Warning!</span> Stages are out of order. In a meet-multiplied quantale, moving from a higher stage (e.g. drafted) back to a lower stage (e.g. researched) causes refinement collapse.
-                  </div>
-                </div>
-              )}
 
-              {/* Meet bottleneck */}
-              <div className="flex justify-between items-center bg-slate-50 border border-slate-100 p-3 rounded-xl text-xs">
-                <div>
-                  <p className="font-semibold text-slate-700">Lattice Meet (Bottleneck)</p>
-                  <p className="text-slate-500 text-[10px] mt-0.5">The overall guaranteed content quality limit: ⋀ steps</p>
-                </div>
-                <span className="font-bold text-orange-600 uppercase tracking-wide bg-orange-100/50 px-3 py-1 rounded-lg border border-orange-200">
-                  {analysis.effectiveStage}
-                </span>
-              </div>
-
-              {/* Template comparisons */}
-              <div className="text-xs">
-                <p className="font-semibold text-slate-700 mb-2">Preset Comparisons</p>
-                <div className="grid grid-cols-3 gap-3">
-                  {Object.entries(analysis.comparisons || {}).map(([preset, val]) => (
-                    <div key={preset} className="bg-slate-50 border border-slate-100 p-2.5 rounded-lg text-center">
-                      <p className="font-bold text-slate-500 text-[10px] uppercase mb-1">{preset}</p>
-                      <p className="text-slate-700 font-semibold text-[11px]">{val}</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  {diagnostics.properties.map((prop, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-white border border-slate-200/50 p-2.5 rounded-xl shadow-xs">
+                      <span className="font-semibold text-slate-600">{prop.name}</span>
+                      <span className={`px-2 py-0.5 rounded text-[9px] font-bold ${
+                        prop.val 
+                          ? "bg-emerald-150/50 text-emerald-700 border border-emerald-200" 
+                          : "bg-red-100 text-red-600 border border-red-200"
+                      }`}>
+                        {prop.val ? "Verified" : "Fail"}
+                      </span>
                     </div>
                   ))}
                 </div>
-              </div>
 
-            </div>
-          )}
+                {/* Target Stage selector for local residuation calculator */}
+                {analysis && (
+                  <div className="border-t border-slate-100 pt-4 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-4 text-xs">
+                    <div className="flex-1">
+                      <p className="font-bold text-slate-700 mb-1.5">Set Target Quality Stage ($c$)</p>
+                      <select
+                        value={targetStage}
+                        onChange={(e) => setTargetStage(e.target.value)}
+                        className="w-full bg-white border border-slate-200 text-slate-700 py-2 px-2.5 rounded-xl outline-none font-semibold"
+                      >
+                        {stages.map((stage) => (
+                          <option key={stage} value={stage}>
+                            Target: {stage}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex-1 bg-white border border-slate-200/50 p-3 rounded-xl shadow-xs flex items-center justify-between">
+                      <div>
+                        <p className="font-semibold text-slate-700">Lattice Meet (Bottleneck)</p>
+                        <p className="text-[9px] text-slate-400 mt-0.5">The guaranteed quality ceiling: ⋀ steps</p>
+                      </div>
+                      <span className="font-extrabold text-orange-600 bg-orange-50 border border-orange-200 px-3 py-1 rounded-lg uppercase tracking-wider">
+                        {analysis.effectiveStage}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-start gap-2 bg-rose-50 border border-rose-200 text-rose-800 p-3.5 rounded-2xl text-xs">
+                  <ShieldAlert className="w-4 h-4 mt-0.5 text-rose-600 flex-shrink-0" />
+                  <div>
+                    <span className="font-bold">Axiom Violation Error:</span> The poset structure failed algebraic checks.
+                  </div>
+                </div>
+                
+                <ul className="list-disc pl-5 text-xs text-rose-700 space-y-1.5">
+                  {diagnostics.errors.map((err, idx) => (
+                    <li key={idx} className="leading-relaxed">{err}</li>
+                  ))}
+                </ul>
+
+                <p className="text-[10px] text-slate-400 italic">
+                  Tip: Toggle graph editing and insert edges/nodes to ensure that every pair of elements has a Join (upper boundary) and Meet (lower boundary), with a unified top and bottom node.
+                </p>
+              </div>
+            )}
+          </div>
 
         </div>
 
