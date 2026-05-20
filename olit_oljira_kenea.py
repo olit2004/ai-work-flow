@@ -23,6 +23,7 @@ Hierarchy:
 Use-case thread: database access-control permissions throughout.
 """
 
+# pyrefly: ignore [invalid-syntax]
 from __future__ import annotations
 from typing import TypeVar, Generic, FrozenSet, Callable, Optional
 from itertools import product as cartesian
